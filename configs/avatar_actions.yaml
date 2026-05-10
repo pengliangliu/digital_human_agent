@@ -1,0 +1,64 @@
+# Avatar Action White-List
+# Only actions defined here can be dispatched to the avatar runtime.
+# This prevents LLM from generating arbitrary unsafe actions.
+
+actions:
+  look_at:
+    priority: realtime
+    max_duration_ms: 200
+    params:
+      target: { type: string, enum: [user_face, user_body, camera, idle] }
+      yaw: { type: float, min: -90, max: 90 }
+      pitch: { type: float, min: -60, max: 60 }
+      confidence: { type: float, min: 0, max: 1 }
+
+  head_pose:
+    priority: realtime
+    max_duration_ms: 500
+    params:
+      yaw: { type: float, min: -90, max: 90 }
+      pitch: { type: float, min: -60, max: 60 }
+      roll: { type: float, min: -45, max: 45 }
+
+  gesture:
+    priority: normal
+    max_duration_ms: 3000
+    params:
+      name: { type: string, enum: [nod, shake_head, wave, point_left, point_right, idle_scan, thinking] }
+      intensity: { type: float, min: 0, max: 1 }
+
+  expression:
+    priority: normal
+    max_duration_ms: 5000
+    params:
+      name: { type: string, enum: [neutral, smile, friendly, surprised, thinking, concerned, happy] }
+      intensity: { type: float, min: 0, max: 1 }
+
+  speech_start:
+    priority: normal
+    max_duration_ms: 0
+
+  speech_end:
+    priority: normal
+    max_duration_ms: 0
+
+  lip_sync:
+    priority: realtime
+    max_duration_ms: 100
+    params:
+      viseme: { type: string }
+      amount: { type: float, min: 0, max: 1 }
+
+  try_on:
+    priority: blocking
+    max_duration_ms: 10000
+    params:
+      garment_id: { type: string }
+      layer_id: { type: string }
+
+  load_avatar:
+    priority: blocking
+    max_duration_ms: 30000
+    params:
+      avatar_id: { type: string }
+      model_path: { type: string }

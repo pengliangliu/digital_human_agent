@@ -1,0 +1,147 @@
+import sys
+from pathlib import Path
+
+# Add services/agent-api to Python path
+_svc = Path(__file__).resolve().parent / "services" / "agent-api"
+sys.path.insert(0, str(_svc))
+
+from contextlib import asynccontextmanager
+
+import uvicorn
+from dotenv import load_dotenv
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+
+from app.config import Settings, load_config, project_root
+from app.runtime.event_bus import SessionEventBus
+from app.schemas import ClientEvent
+
+load_dotenv()
+
+
+def _build_orchestrator():
+    from app.agent.orchestrator import AgentOrchestrator
+    from app.agent.memory import SessionMemory
+    from app.adapters.llm import OpenAIAdapter, OllamaAdapter, AnthropicAdapter, MockLLMAdapter
+    from app.adapters.asr import WhisperCloudAdapter, NullASRAdapter
+    from app.adapters.tts import EdgeTTSAdapter, NullTTSAdapter
+    from app.adapters.avatar_action import NullAvatarActionAdapter, HttpAvatarActionAdapter
+
+    settings = Settings()
+    cfg = load_config()
+    llm_cfg = cfg.get("llm", {})
+    tts_cfg = cfg.get("tts", {})
+    avatar_cfg = cfg.get("avatar", {})
+    memory_cfg = cfg.get("memory", {})
+
+    # LLM
+    llm_provider = settings.llm_provider or llm_cfg.get("provider", "openai")
+    if llm_provider == "ollama":
+        ollama = llm_cfg.get("ollama", {})
+        llm = OllamaAdapter(
+            host=settings.ollama_host or ollama.get("host", "http://localhost:11434"),
+            model=settings.ollama_model or ollama.get("model", "qwen2.5:7b"),
+            temperature=ollama.get("temperature", 0.7),
+            max_tokens=ollama.get("max_tokens", 1024),
+        )
+    elif llm_provider == "anthropic":
+        anthro = llm_cfg.get("anthropic", {})
+        llm = AnthropicAdapter(
+            api_key=settings.anthropic_api_key,
+            model=anthro.get("model", "claude-sonnet-4-6"),
+            temperature=anthro.get("temperature", 0.7),
+            max_tokens=anthro.get("max_tokens", 1024),
+        )
+    else:
+        openai_cfg = llm_cfg.get("openai", {})
+        api_key = settings.openai_api_key
+        if not api_key:
+            print("[agent-api] WARNING: OPENAI_API_KEY not set, using MockLLMAdapter")
+            llm = MockLLMAdapter()
+        else:
+            llm = OpenAIAdapter(
+                api_key=api_key,
+                base_url=settings.openai_base_url or openai_cfg.get("base_url", "https://api.openai.com/v1"),
+                model=settings.openai_model or openai_cfg.get("model", "gpt-4o"),
+                temperature=openai_cfg.get("temperature", 0.7),
+                max_tokens=openai_cfg.get("max_tokens", 1024),
+            )
+
+    # ASR
+    asr_provider = settings.asr_provider or cfg.get("asr", {}).get("provider", "cloud")
+    if asr_provider == "cloud" and settings.openai_api_key:
+        asr = WhisperCloudAdapter(api_key=settings.openai_api_key, base_url=settings.openai_base_url)
+    else:
+        asr = NullASRAdapter()
+
+    # TTS
+    tts_provider = settings.tts_provider or tts_cfg.get("provider", "edge")
+    if tts_provider == "edge":
+        tts = EdgeTTSAdapter(voice=tts_cfg.get("edge", {}).get("voice", "zh-CN-XiaoxiaoNeural"))
+    else:
+        tts = NullTTSAdapter()
+
+    # Avatar
+    avatar_adapter = avatar_cfg.get("adapter", "null")
+    if avatar_adapter == "http":
+        avatar = HttpAvatarActionAdapter(
+            base_url=settings.avatar_api_url or avatar_cfg.get("http", {}).get("base_url", "http://localhost:9000")
+        )
+    else:
+        avatar = NullAvatarActionAdapter()
+
+    # Memory
+    memory = SessionMemory(db_path=memory_cfg.get("db_path", "data/memory.db"))
+
+    return AgentOrchestrator(
+        event_bus=event_bus,
+        llm=llm,
+        asr=asr,
+        tts=tts,
+        avatar=avatar,
+        memory=memory,
+    )
+
+
+event_bus = SessionEventBus()
+agent = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global agent
+    agent = _build_orchestrator()
+    print(f"[agent-api] LLM={agent._llm.__class__.__name__} ASR={agent._asr.__class__.__name__} TTS={agent._tts.__class__.__name__}")
+    yield
+    await agent.close()
+
+
+app = FastAPI(title="Digital Human Agent API", version="0.1.0", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "sessions": event_bus.active_sessions()}
+
+
+@app.websocket("/ws/session/{session_id}")
+async def session_ws(websocket: WebSocket, session_id: str) -> None:
+    global agent
+    await websocket.accept()
+    await event_bus.attach(session_id, websocket)
+
+    try:
+        while True:
+            payload = await websocket.receive_json()
+            event = ClientEvent.model_validate(payload)
+            if agent:
+                await agent.handle_event(session_id=session_id, event=event)
+    except WebSocketDisconnect:
+        await event_bus.detach(session_id, websocket)
+    except Exception as e:
+        print(f"[ws:{session_id}] error: {e}")
+        await event_bus.detach(session_id, websocket)
+
+
+if __name__ == "__main__":
+    settings = Settings()
+    uvicorn.run(app, host=settings.host, port=settings.port, log_level=settings.log_level)

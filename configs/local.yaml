@@ -1,0 +1,61 @@
+# Digital Human Agent — Local Configuration
+server:
+  host: "0.0.0.0"
+  port: 8000
+  log_level: "info"
+
+llm:
+  provider: "openai"          # openai | ollama | anthropic
+  openai:
+    model: "gpt-4o"
+    temperature: 0.7
+    max_tokens: 1024
+  ollama:
+    host: "http://localhost:11434"
+    model: "qwen2.5:7b"
+    temperature: 0.7
+    max_tokens: 1024
+  anthropic:
+    model: "claude-sonnet-4-6"
+    temperature: 0.7
+    max_tokens: 1024
+
+asr:
+  provider: "cloud"           # cloud | local
+  cloud:
+    engine: "openai-whisper"  # openai-whisper
+  local:
+    engine: "faster-whisper"
+    model_size: "base"
+
+tts:
+  provider: "edge"            # edge | openai | local
+  edge:
+    voice: "zh-CN-XiaoxiaoNeural"
+  openai:
+    voice: "alloy"
+  local:
+    engine: "cosyvoice"
+
+vad:
+  aggressiveness: 2           # 0-3, higher = more aggressive
+  frame_duration_ms: 30
+  silence_threshold_ms: 500
+
+avatar:
+  adapter: "null"             # null | http
+  http:
+    base_url: "http://localhost:9000"
+
+vision:
+  smoothing_alpha: 0.3        # EMA smoothing factor for face tracking
+  min_confidence: 0.5
+  idle_timeout_seconds: 3.0
+
+agent:
+  system_prompt: "digital_human_agent"
+  max_history_turns: 20
+
+memory:
+  type: "sqlite"              # sqlite | json
+  db_path: "data/memory.db"

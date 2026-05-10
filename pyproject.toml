@@ -1,0 +1,42 @@
+[project]
+name = "dagital-human-agent"
+version = "0.1.0"
+description = "智能数字人Agent — 虚拟试衣魔镜终端交互系统"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "websockets>=13.0",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "pyyaml>=6.0",
+    "httpx>=0.28.0",
+    "openai>=1.58.0",
+    "python-dotenv>=1.0",
+    "numpy>=1.26",
+    "soundfile>=0.12.0",
+    "librosa>=0.10.0",
+    "edge-tts>=6.1.0",
+    "webrtcvad>=2.0.10",
+    "aiosqlite>=0.20.0",
+    "orjson>=3.10.0",
+]
+
+[project.optional-dependencies]
+local = [
+    "ollama>=0.4.0",
+    "faster-whisper>=1.0.0",
+    "sherpa-onnx>=1.10.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx-ws>=0.6.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["services.*"]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
