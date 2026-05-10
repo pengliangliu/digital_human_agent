@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any
 
-from app.schemas import AgentReply, AVAILABLE_TOOLS
+from app.schemas import AgentReply, ToolCall
 
 
 class LLMAdapter(ABC):
@@ -224,15 +224,12 @@ def _parse_llm_content(content: str, tool_calls: list | None) -> AgentReply:
     tc_list = []
     if tool_calls:
         for tc in tool_calls:
-            try:
-                args = json.loads(tc.function.arguments) if hasattr(tc.function, "arguments") else {}
-            except json.JSONDecodeError:
-                args = {}
+            args = _coerce_tool_arguments(tc.function.arguments) if hasattr(tc.function, "arguments") else {}
             tc_list.append(
-                type("ToolCall", (), {
-                    "name": tc.function.name if hasattr(tc.function, "name") else "",
-                    "arguments": args,
-                })()
+                ToolCall(
+                    name=tc.function.name if hasattr(tc.function, "name") else "",
+                    arguments=args,
+                )
             )
 
     return AgentReply(
@@ -240,12 +237,7 @@ def _parse_llm_content(content: str, tool_calls: list | None) -> AgentReply:
         emotion="neutral",
         intent="chat",
         actions=[],
-        tool_calls=[
-            type("TC", (), {
-                "name": tc.name if hasattr(tc, "name") else "",
-                "arguments": tc.arguments if hasattr(tc, "arguments") else {},
-            })() for tc in tc_list
-        ],
+        tool_calls=tc_list,
     )
 
 
@@ -265,13 +257,22 @@ def _validate_actions(actions: list[dict]) -> list[dict]:
     return result
 
 
-def _build_tool_calls(raw: list[dict]) -> list:
-    result = []
+def _coerce_tool_arguments(raw: Any) -> dict[str, Any]:
+    import json
+
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _build_tool_calls(raw: list[dict]) -> list[ToolCall]:
+    result: list[ToolCall] = []
     for tc in raw:
-        result.append(
-            type("TC", (), {
-                "name": tc.get("name", ""),
-                "arguments": tc.get("arguments", {}),
-            })()
-        )
+        result.append(ToolCall(name=tc.get("name", ""), arguments=_coerce_tool_arguments(tc.get("arguments", {}))))
     return result

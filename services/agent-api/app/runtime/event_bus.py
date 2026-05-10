@@ -26,15 +26,22 @@ class SessionEventBus:
         dead: list[WebSocket] = []
         async with self._lock:
             sockets = list(self._sessions.get(session_id, []))
+
         for ws in sockets:
             try:
                 await ws.send_json({"event": event, "payload": data})
             except Exception:
                 dead.append(ws)
+
         if dead:
             async with self._lock:
                 for ws in dead:
-                    await self.detach(session_id, ws)
+                    try:
+                        self._sessions[session_id].remove(ws)
+                    except (ValueError, KeyError):
+                        pass
+                if not self._sessions.get(session_id):
+                    self._sessions.pop(session_id, None)
 
     def active_sessions(self) -> int:
         return len(self._sessions)

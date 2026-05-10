@@ -4,15 +4,29 @@ export type ClientEvent = {
 };
 
 type MessageHandler = (event: ClientEvent) => void;
+type SocketHandler = () => void;
+type SocketErrorHandler = (event: Event) => void;
 
 export function createSessionSocket(sessionId: string) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.hostname}:8000/ws/session/${sessionId}`;
   const ws = new WebSocket(wsUrl);
   const handlers: MessageHandler[] = [];
+  const openHandlers: SocketHandler[] = [];
+  const closeHandlers: SocketHandler[] = [];
+  const errorHandlers: SocketErrorHandler[] = [];
 
   ws.onopen = () => {
     ws.send(JSON.stringify({ event: 'session.init', payload: {} }));
+    openHandlers.forEach((handler) => handler());
+  };
+
+  ws.onclose = () => {
+    closeHandlers.forEach((handler) => handler());
+  };
+
+  ws.onerror = (event) => {
+    errorHandlers.forEach((handler) => handler(event));
   };
 
   ws.onmessage = (message) => {
@@ -36,6 +50,18 @@ export function createSessionSocket(sessionId: string) {
         const idx = handlers.indexOf(handler);
         if (idx >= 0) handlers.splice(idx, 1);
       };
+    },
+    onOpen(handler: SocketHandler) {
+      openHandlers.push(handler);
+    },
+    onClose(handler: SocketHandler) {
+      closeHandlers.push(handler);
+    },
+    onError(handler: SocketErrorHandler) {
+      errorHandlers.push(handler);
+    },
+    readyState() {
+      return ws.readyState;
     },
     close() {
       ws.close();

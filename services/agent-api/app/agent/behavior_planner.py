@@ -50,11 +50,6 @@ class BehaviorPlanner:
         emotion = reply.get("emotion", "neutral")
         actions: list[AvatarAction] = [
             AvatarAction(
-                type="speech_start",
-                priority="normal",
-                payload={},
-            ),
-            AvatarAction(
                 type="expression",
                 priority="normal",
                 duration_ms=5000,
@@ -89,14 +84,5 @@ class BehaviorPlanner:
                         },
                     )
                 )
-
-        # Auto append speech_end (frontend handles timing)
-        actions.append(
-            AvatarAction(
-                type="speech_end",
-                priority="normal",
-                payload={},
-            )
-        )
 
         return actions

@@ -40,6 +40,11 @@ npm run dev
 
 打开 `http://localhost:5173`，看到数字人场景后即可交互。
 
+### Windows 常见问题
+
+- 如果 PowerShell 提示无法加载 `npm.ps1`，请改用 `npm.cmd run dev` 或 `npm.cmd run build`。
+- 如果 `.\\venv\\Scripts\\python.exe` 提示找不到 WindowsApps 里的 Python 3.10，说明虚拟环境引用的解释器已经失效。安装 Python 3.10+ 后重新创建 `venv`，再执行 `pip install -e .[dev]`。
+
 ## 项目结构
 
 ```

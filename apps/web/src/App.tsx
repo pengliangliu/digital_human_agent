@@ -38,9 +38,9 @@ export default function App() {
   const [micEnabled, setMicEnabled] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [events, setEvents] = useState<ClientEvent[]>([]);
-  const [wsOpen, setWsOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const socketRef = useRef<ReturnType<typeof createSessionSocket> | null>(null);
+  const avatarRuntimeRef = useRef<BrowserAvatarRuntime | null>(null);
 
   const send = useCallback((event: ClientEvent) => {
     socketRef.current?.send(event);
@@ -49,9 +49,25 @@ export default function App() {
   // Connect WebSocket
   useEffect(() => {
     let timeoutId: number;
+    let disposed = false;
     try {
       const socket = createSessionSocket(SESSION_ID);
       socketRef.current = socket;
+
+      socket.onOpen(() => {
+        if (disposed) return;
+        setStatus('ready');
+      });
+      socket.onClose(() => {
+        if (disposed) return;
+        setStatus('error');
+        setError('WebSocket 连接已断开，请确认后端服务仍在运行。');
+      });
+      socket.onError(() => {
+        if (disposed) return;
+        setStatus('error');
+        setError('WebSocket 连接失败，请先启动后端：.\\venv\\Scripts\\python run.py');
+      });
 
       socket.onMessage((event) => {
         setEvents((prev) => [...prev.slice(-30), event]);
@@ -86,7 +102,19 @@ export default function App() {
                   const blob = new Blob([bytes], { type: 'audio/mp3' });
                   const url = URL.createObjectURL(blob);
                   const audio = new Audio(url);
-                  audio.play().catch(() => {});
+                  avatarRuntimeRef.current?.apply({ type: 'speech_start', priority: 'normal', payload: {} });
+                  audio.onended = () => {
+                    avatarRuntimeRef.current?.apply({ type: 'speech_end', priority: 'normal', payload: {} });
+                    URL.revokeObjectURL(url);
+                  };
+                  audio.onerror = () => {
+                    avatarRuntimeRef.current?.apply({ type: 'speech_end', priority: 'normal', payload: {} });
+                    URL.revokeObjectURL(url);
+                  };
+                  audio.play().catch(() => {
+                    avatarRuntimeRef.current?.apply({ type: 'speech_end', priority: 'normal', payload: {} });
+                    URL.revokeObjectURL(url);
+                  });
                 } catch { /* audio play error */ }
               }
               break;
@@ -97,19 +125,16 @@ export default function App() {
         }
       });
 
-      // Detect WebSocket open
-      const checkOpen = setInterval(() => {
-        setWsOpen(!!socketRef.current);
-        if (wsOpen) clearInterval(checkOpen);
-      }, 300);
       timeoutId = window.setTimeout(() => {
-        clearInterval(checkOpen);
-        setStatus('ready');
+        if (socket.readyState() !== WebSocket.OPEN) {
+          setStatus('error');
+          setError('WebSocket 连接超时，请确认后端 http://localhost:8000 已启动。');
+        }
       }, 1500);
 
       return () => {
+        disposed = true;
         clearTimeout(timeoutId);
-        clearInterval(checkOpen);
         socket.close();
       };
     } catch (e: any) {
@@ -163,6 +188,7 @@ export default function App() {
   };
 
   const onAvatarReady = useCallback((runtime: BrowserAvatarRuntime) => {
+    avatarRuntimeRef.current = runtime;
     setAvatarRuntime(runtime);
   }, []);
 

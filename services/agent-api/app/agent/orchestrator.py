@@ -32,7 +32,7 @@ class AgentOrchestrator:
         self._tools = AgentTools()
         self._memory = memory
         self._processing: dict[str, bool] = {}
-        self._tts_enabled = True
+        self._tts_enabled: dict[str, bool] = {}
 
     async def handle_event(self, session_id: str, event: ClientEvent) -> None:
         if event.event == "vision.state":
@@ -44,7 +44,7 @@ class AgentOrchestrator:
         elif event.event == "session.init":
             await self._handle_session_init(session_id)
         elif event.event == "session.config":
-            self._tts_enabled = event.payload.get("tts_enabled", True)
+            self._tts_enabled[session_id] = event.payload.get("tts_enabled", True)
 
     async def _handle_vision(self, session_id: str, event: ClientEvent) -> None:
         vision = VisionState.model_validate(event.payload)
@@ -94,8 +94,8 @@ class AgentOrchestrator:
 
             # Update memory
             if reply.memory_updates:
-                uid = user_id or f"user_{session_id}"
-                await self._memory.update_user_profile(uid, reply.memory_updates)
+                user_id = user_id or f"user_{session_id}"
+                await self._memory.update_user_profile(user_id, reply.memory_updates)
 
             # Trim history
             max_turns = 20
@@ -113,7 +113,7 @@ class AgentOrchestrator:
                 await self._event_bus.publish(session_id, "avatar.action", action.model_dump())
 
             # TTS
-            if self._tts_enabled:
+            if self._tts_enabled.get(session_id, True):
                 try:
                     audio = await self._tts.synthesize(reply.reply_text)
                     audio_b64 = base64.b64encode(audio).decode("utf-8")

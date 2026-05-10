@@ -34,8 +34,12 @@ dev = [
     "httpx-ws>=0.6.0",
 ]
 
+[tool.setuptools]
+package-dir = {"" = "services/agent-api"}
+
 [tool.setuptools.packages.find]
-include = ["services.*"]
+where = ["services/agent-api"]
+include = ["app*"]
 
 [build-system]
 requires = ["setuptools>=75.0"]
