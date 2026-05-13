@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component, ReactNode } from 'react';
 import AvatarScene from './avatar/AvatarScene';
 import { BrowserAvatarRuntime, AvatarAction } from './avatar/avatarActions';
+import { fetchAvatarModels, type AvatarModelInfo } from './avatar/avatarModels';
 import { createSessionSocket, ClientEvent } from './api/wsClient';
 import { useFaceTracking } from './vision/useFaceTracking';
 import { useMicrophone } from './audio/useMicrophone';
@@ -38,12 +39,42 @@ export default function App() {
   const [micEnabled, setMicEnabled] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [events, setEvents] = useState<ClientEvent[]>([]);
+  const [avatarModels, setAvatarModels] = useState<AvatarModelInfo[]>([]);
+  const [selectedAvatarId, setSelectedAvatarId] = useState('');
+  const [modelStatus, setModelStatus] = useState('使用内置占位数字人');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const socketRef = useRef<ReturnType<typeof createSessionSocket> | null>(null);
   const avatarRuntimeRef = useRef<BrowserAvatarRuntime | null>(null);
 
   const send = useCallback((event: ClientEvent) => {
     socketRef.current?.send(event);
+  }, []);
+
+  const selectedAvatarModel = avatarModels.find((item) => item.id === selectedAvatarId) || null;
+
+  const handleModelStatus = useCallback((message: string) => {
+    setModelStatus(message);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAvatarModels()
+      .then((items) => {
+        if (cancelled) return;
+        setAvatarModels(items);
+        if (items.length > 0) {
+          setSelectedAvatarId(items[0].id);
+          setModelStatus(`发现 ${items.length} 个自建模型`);
+        }
+      })
+      .catch((e) => {
+        console.warn('[app] avatar model list failed:', e);
+        if (!cancelled) setModelStatus('未发现可用自建模型，使用内置占位数字人');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Connect WebSocket
@@ -214,7 +245,12 @@ export default function App() {
     <ErrorBoundary>
       <div className="app">
         <div className="scene-container">
-          <AvatarScene onAvatarReady={onAvatarReady} actions={avatarActions} />
+          <AvatarScene
+            onAvatarReady={onAvatarReady}
+            actions={avatarActions}
+            model={selectedAvatarModel}
+            onModelStatus={handleModelStatus}
+          />
           <video ref={videoRef} autoPlay muted playsInline className="camera-preview" />
         </div>
 
@@ -232,6 +268,7 @@ export default function App() {
           </div>
 
           {replyText && <div className="reply-bubble">{replyText}</div>}
+          <div className="model-status">{modelStatus}</div>
         </div>
 
         <div className="controls">
@@ -245,6 +282,19 @@ export default function App() {
             <button className={`ctrl-btn ${visionEnabled ? 'active' : ''}`} onClick={() => setVisionEnabled(!visionEnabled)}>
               {visionEnabled ? '追踪开' : '追踪关'}
             </button>
+            <select
+              className="model-select"
+              value={selectedAvatarId}
+              onChange={(e) => setSelectedAvatarId(e.target.value)}
+              title={modelStatus}
+            >
+              <option value="">内置占位数字人</option>
+              {avatarModels.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} ({item.format})
+                </option>
+              ))}
+            </select>
           </div>
           <div className="text-row">
             <input id="text-input" type="text" placeholder="输入文字与数字人对话..." onKeyDown={(e) => e.key === 'Enter' && handleTextSend()} />

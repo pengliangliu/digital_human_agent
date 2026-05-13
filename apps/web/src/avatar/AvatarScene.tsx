@@ -1,15 +1,22 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { BrowserAvatarRuntime, AvatarAction } from './avatarActions';
+import type { AvatarModelInfo } from './avatarModels';
+import { loadAvatarModel } from './modelLoader';
 
 type Props = {
   onAvatarReady: (runtime: BrowserAvatarRuntime) => void;
   actions: AvatarAction[];
+  model?: AvatarModelInfo | null;
+  onModelStatus?: (message: string) => void;
 };
 
-export default function AvatarScene({ onAvatarReady, actions }: Props) {
+export default function AvatarScene({ onAvatarReady, actions, model, onModelStatus }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const runtimeRef = useRef<BrowserAvatarRuntime | null>(null);
+  const modelRootRef = useRef<THREE.Group | null>(null);
+  const placeholderRef = useRef<THREE.Group | null>(null);
+  const externalModelRef = useRef<THREE.Group | null>(null);
 
   useEffect(() => {
     const container = mountRef.current;
@@ -51,6 +58,7 @@ export default function AvatarScene({ onAvatarReady, actions }: Props) {
     // ---- Rotatable container for the whole model ----
     const modelRoot = new THREE.Group();
     scene.add(modelRoot);
+    modelRootRef.current = modelRoot;
 
     // Digital Human placeholder
     const bodyGroup = new THREE.Group();
@@ -132,6 +140,7 @@ export default function AvatarScene({ onAvatarReady, actions }: Props) {
     bodyGroup.add(headGroup);
     bodyGroup.position.set(0, 0.5, 0);
     modelRoot.add(bodyGroup);
+    placeholderRef.current = bodyGroup;
 
     const runtime = new BrowserAvatarRuntime(headGroup, null);
     runtimeRef.current = runtime;
@@ -223,9 +232,67 @@ export default function AvatarScene({ onAvatarReady, actions }: Props) {
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onTouchEnd);
       renderer.dispose();
+      disposeObject(externalModelRef.current);
       container.removeChild(renderer.domElement);
+      runtimeRef.current = null;
+      modelRootRef.current = null;
+      placeholderRef.current = null;
+      externalModelRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    const modelRoot = modelRootRef.current;
+    const placeholder = placeholderRef.current;
+    if (!runtime || !modelRoot) return;
+
+    let cancelled = false;
+
+    const activeRuntime = runtime;
+    const activeModelRoot = modelRoot;
+
+    async function replaceModel() {
+      if (externalModelRef.current) {
+        activeModelRoot.remove(externalModelRef.current);
+        disposeObject(externalModelRef.current);
+        externalModelRef.current = null;
+      }
+
+      if (!model) {
+        if (placeholder) placeholder.visible = true;
+        activeRuntime.setExternalModel(null);
+        onModelStatus?.('使用内置占位数字人');
+        return;
+      }
+
+      onModelStatus?.(`正在加载 ${model.name}`);
+      try {
+        const loaded = await loadAvatarModel(model);
+        if (cancelled) {
+          disposeObject(loaded);
+          return;
+        }
+
+        if (placeholder) placeholder.visible = false;
+        activeModelRoot.add(loaded);
+        externalModelRef.current = loaded;
+        activeRuntime.setExternalModel(loaded);
+        onModelStatus?.(`已加载 ${model.name}`);
+      } catch (error) {
+        console.warn('[avatar] model load failed:', error);
+        if (placeholder) placeholder.visible = true;
+        activeRuntime.setExternalModel(null);
+        onModelStatus?.(`模型加载失败，已回退占位数字人：${model.name}`);
+      }
+    }
+
+    replaceModel();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [model, onModelStatus]);
 
   useEffect(() => {
     if (!runtimeRef.current || !actions.length) return;
@@ -234,4 +301,15 @@ export default function AvatarScene({ onAvatarReady, actions }: Props) {
   }, [actions]);
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%', cursor: 'grab' }} />;
+}
+
+function disposeObject(object: THREE.Object3D | null) {
+  if (!object) return;
+  object.traverse((child) => {
+    const mesh = child as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.geometry?.dispose();
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    materials.forEach((material) => material?.dispose());
+  });
 }

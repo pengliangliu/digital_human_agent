@@ -10,7 +10,9 @@ from contextlib import asynccontextmanager
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 
+from app.avatar_models import discover_avatar_models
 from app.config import Settings, load_config, project_root
 from app.runtime.event_bus import SessionEventBus
 from app.schemas import ClientEvent
@@ -116,11 +118,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Digital Human Agent API", version="0.1.0", lifespan=lifespan)
+app.mount("/models", StaticFiles(directory=project_root() / "models", check_dir=False), name="models")
 
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "sessions": event_bus.active_sessions()}
+
+
+@app.get("/api/avatars")
+async def list_avatar_models():
+    return {
+        "items": discover_avatar_models(project_root() / "models" / "avatars"),
+        "supported_formats": ["glb", "gltf", "obj", "fbx"],
+    }
 
 
 @app.websocket("/ws/session/{session_id}")
