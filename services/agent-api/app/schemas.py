@@ -28,6 +28,11 @@ class AvatarAction(BaseModel):
         "speech_end",
         "lip_sync",
         "pose",
+        "bone_pose",
+        "morph_target",
+        "viseme",
+        "animation_clip",
+        "motion_sequence",
         "try_on",
         "load_avatar",
     ]
@@ -55,11 +60,11 @@ AVAILABLE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "recommend_outfits",
-            "description": "根据用户风格偏好推荐服装搭配",
+            "description": "可选扩展：当用户明确提出造型或服装需求时，按偏好给出候选建议",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "style": {"type": "string", "description": "风格：casual/formal/sporty/commute"},
+                    "style": {"type": "string", "description": "风格偏好：casual/formal/sporty/commute"},
                     "color_preference": {"type": "string", "description": "颜色偏好：light/dark/bright"},
                 },
                 "required": [],
@@ -70,12 +75,12 @@ AVAILABLE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "try_on",
-            "description": "让数字人试穿指定服装",
+            "description": "可选扩展：当用户明确提出展示需求时，让数字人加载指定造型资产",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "garment_id": {"type": "string", "description": "服装ID"},
-                    "layer_id": {"type": "string", "description": "服装层级：upper/lower/outer"},
+                    "garment_id": {"type": "string", "description": "造型资产ID"},
+                    "layer_id": {"type": "string", "description": "资产层级：upper/lower/outer"},
                 },
                 "required": ["garment_id"],
             },
@@ -85,7 +90,7 @@ AVAILABLE_TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_user_profile",
-            "description": "获取当前用户的体型和偏好信息",
+            "description": "获取当前用户画像和明确记录的偏好信息",
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },

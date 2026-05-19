@@ -43,10 +43,9 @@ class HttpAvatarActionAdapter(AvatarActionAdapter):
                     json={
                         "session_id": session_id,
                         "type": action.type,
-                        "name": action.payload.get("name", action.type),
-                        "intensity": action.payload.get("intensity", 0.5),
-                        "duration_ms": action.duration_ms or 1000,
-                        **{k: v for k, v in action.payload.items() if k not in ("name", "intensity")},
+                        "priority": action.priority,
+                        "duration_ms": action.duration_ms,
+                        "payload": action.payload,
                     },
                 )
             except Exception as e:

@@ -137,6 +137,9 @@ def _build_orchestrator():
 
     # Memory
     memory = SessionMemory(db_path=memory_cfg.get("db_path", "data/memory.db"))
+    asr_log_path = Path(settings.asr_log_file or "logs/asr.log")
+    if not asr_log_path.is_absolute():
+        asr_log_path = project_root() / asr_log_path
 
     return AgentOrchestrator(
         event_bus=event_bus,
@@ -146,6 +149,7 @@ def _build_orchestrator():
         avatar=avatar,
         memory=memory,
         session_llm_factory=_build_deepseek_session_llm_factory(settings, llm_cfg),
+        asr_log_path=asr_log_path,
     )
 
 
@@ -182,20 +186,27 @@ async def list_avatar_models():
 @app.websocket("/ws/session/{session_id}")
 async def session_ws(websocket: WebSocket, session_id: str) -> None:
     global agent
-    await websocket.accept()
-    await event_bus.attach(session_id, websocket)
-
     try:
+        await websocket.accept()
+        await event_bus.attach(session_id, websocket)
         while True:
             payload = await websocket.receive_json()
             event = ClientEvent.model_validate(payload)
             if agent:
                 await agent.handle_event(session_id=session_id, event=event)
     except WebSocketDisconnect:
-        await event_bus.detach(session_id, websocket)
+        pass
+    except RuntimeError as e:
+        if not _is_websocket_closed_before_accept(e):
+            print(f"[ws:{session_id}] error: {e}")
     except Exception as e:
         print(f"[ws:{session_id}] error: {e}")
+    finally:
         await event_bus.detach(session_id, websocket)
+
+
+def _is_websocket_closed_before_accept(exc: RuntimeError) -> bool:
+    return 'WebSocket is not connected. Need to call "accept" first.' in str(exc)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,34 @@ import { useFaceTracking } from './vision/useFaceTracking';
 import { useMicrophone } from './audio/useMicrophone';
 import './App.css';
 
-const SESSION_ID = 'mirror-' + Date.now().toString(36);
+const SESSION_ID = 'avatar-' + Date.now().toString(36);
+
+function formatAsrStatus(payload: Record<string, unknown>) {
+  const message = payload.message;
+  if (typeof message === 'string' && message.trim()) return message;
+
+  const phase = payload.phase as string;
+  const phaseText: Record<string, string> = {
+    queued: '录音已进入识别队列',
+    received: '后端已收到录音数据',
+    decode_base64: '正在解析浏览器录音',
+    transcribe: '正在调用 ASR 识别',
+    preparing_audio: '正在准备上传给云端 ASR 的音频',
+    cloud_transcribing: '正在等待云端 ASR 返回结果',
+    loading_model: '正在加载本地 Whisper 模型',
+    decoding_audio: '正在解码浏览器音频',
+    transcribing: '正在运行 Whisper 推理',
+    done: '录音识别完成',
+  };
+  if (phase && phaseText[phase]) return phaseText[phase];
+
+  const status = payload.status as string;
+  return (
+    status === 'processing' ? '正在识别录音，可以继续输入文字' :
+    status === 'cancelled' ? '上一段录音识别已取消' :
+    status === 'error' ? '录音识别失败' : ''
+  );
+}
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null };
@@ -37,10 +64,11 @@ export default function App() {
   const [avatarRuntime, setAvatarRuntime] = useState<BrowserAvatarRuntime | null>(null);
   const [visionEnabled, setVisionEnabled] = useState(true);
   const [micEnabled, setMicEnabled] = useState(false);
-  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
   const [deepseekApiKey, setDeepseekApiKey] = useState('');
   const [llmStatus, setLlmStatus] = useState('请填写 DeepSeek API Key');
   const [llmConnecting, setLlmConnecting] = useState(false);
+  const [asrStatus, setAsrStatus] = useState('');
   const [events, setEvents] = useState<ClientEvent[]>([]);
   const [avatarModels, setAvatarModels] = useState<AvatarModelInfo[]>([]);
   const [selectedAvatarId, setSelectedAvatarId] = useState('');
@@ -100,7 +128,7 @@ export default function App() {
       socket.onError(() => {
         if (disposed) return;
         setStatus('error');
-        setError('WebSocket 连接失败，请先启动后端：.\\venv\\Scripts\\python run.py');
+        setError('WebSocket 连接失败，请先启动后端：.\\Scripts\\python.exe run.py');
       });
 
       socket.onMessage((event) => {
@@ -159,6 +187,21 @@ export default function App() {
               setLlmStatus((payload.message as string) || ((payload.ok as boolean) ? 'DeepSeek 连接成功' : 'DeepSeek 连接失败'));
               break;
             }
+            case 'asr.status': {
+              const payload = event.payload as Record<string, unknown>;
+              setAsrStatus(formatAsrStatus(payload));
+              break;
+            }
+            case 'asr.result': {
+              setAsrStatus('');
+              break;
+            }
+            case 'error': {
+              const payload = event.payload as Record<string, unknown>;
+              const message = (payload.message as string) || '';
+              if (message.startsWith('ASR error:')) setAsrStatus(message);
+              break;
+            }
           }
         } catch (e) {
           console.warn('[app] event handler error:', e);
@@ -206,17 +249,30 @@ export default function App() {
 
   useFaceTracking(videoRef, send, visionEnabled && status === 'ready');
   const mic = useMicrophone(send, micEnabled);
+  const micLabel =
+    mic.status === 'starting' ? '申请麦克风' :
+    mic.status === 'encoding' ? '处理录音' :
+    micEnabled ? '停止录音' : '开始录音';
+  const micStatus =
+    mic.error ||
+    asrStatus ||
+    (mic.status === 'starting' ? '正在请求麦克风权限...' :
+      mic.status === 'recording' ? '正在录音，点击停止后发送识别' :
+        mic.status === 'encoding' ? '正在处理录音，请稍候...' : '');
 
-  const handleMicToggle = () => {
-    if (micEnabled) {
+  const handleMicToggle = async () => {
+    if (micEnabled || mic.status === 'recording') {
+      setAsrStatus('录音已发送，等待识别...');
       mic.stop();
       setMicEnabled(false);
     } else {
-      mic.start().catch((e) => {
+      try {
+        await mic.start();
+        setMicEnabled(true);
+      } catch (e) {
         console.warn('[app] mic start failed:', e);
         setMicEnabled(false);
-      });
-      setMicEnabled(true);
+      }
     }
   };
 
@@ -252,7 +308,7 @@ export default function App() {
       <div style={{ color: '#f66', padding: 40, background: '#111', height: '100vh', fontFamily: 'monospace' }}>
         <h2>连接失败</h2>
         <p>{error}</p>
-        <p style={{ color: '#888', fontSize: 13 }}>请确保后端已启动：.\venv\Scripts\python run.py</p>
+        <p style={{ color: '#888', fontSize: 13 }}>请确保后端已启动：.\Scripts\python.exe run.py</p>
         <button onClick={() => { setError(''); setStatus('connecting'); window.location.reload(); }}
           style={{ marginTop: 16, padding: '8px 20px', cursor: 'pointer' }}>
           重试
@@ -278,7 +334,7 @@ export default function App() {
           <div className="status-bar">
             <span className={`status-dot ${status === 'ready' ? 'online' : status === 'error' ? 'error' : 'connecting'}`} />
             <span className="status-text">
-              {status === 'ready' ? '小镜在线' : status === 'error' ? '连接失败' : '连接中...'}
+              {status === 'ready' ? '数字人在线' : status === 'error' ? '连接失败' : '连接中...'}
             </span>
             {avatarRuntime && (
               <span className="status-info">
@@ -292,6 +348,11 @@ export default function App() {
           <div className={`llm-status ${llmStatus.includes('成功') ? 'success' : llmStatus.includes('失败') ? 'error' : ''}`}>
             {llmStatus}
           </div>
+          {micStatus && (
+            <div className={`mic-status ${mic.error ? 'error' : ''}`}>
+              {micStatus}
+            </div>
+          )}
         </div>
 
         <div className="controls">
@@ -309,8 +370,12 @@ export default function App() {
             </button>
           </div>
           <div className="control-row">
-            <button className={`ctrl-btn ${micEnabled ? 'active' : ''}`} onClick={handleMicToggle}>
-              {micEnabled ? '停止录音' : '开始录音'}
+            <button
+              className={`ctrl-btn ${micEnabled || mic.status === 'recording' ? 'active' : ''}`}
+              onClick={handleMicToggle}
+              disabled={status !== 'ready' || mic.status === 'starting' || mic.status === 'encoding'}
+            >
+              {micLabel}
             </button>
             <button className={`ctrl-btn ${ttsEnabled ? 'active' : ''}`} onClick={() => setTtsEnabled(!ttsEnabled)}>
               {ttsEnabled ? '语音开' : '语音关'}

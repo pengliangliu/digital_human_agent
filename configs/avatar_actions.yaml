@@ -49,6 +49,53 @@ actions:
       viseme: { type: string }
       amount: { type: float, min: 0, max: 1 }
 
+  bone_pose:
+    priority: realtime
+    max_duration_ms: 500
+    params:
+      bones:
+        type: array
+        items:
+          type: object
+          properties:
+            name: { type: string }
+            rotation: { type: array }
+            position: { type: array }
+            scale: { type: array }
+            weight: { type: float, min: 0, max: 1 }
+      blend_ms: { type: int, min: 0, max: 1000 }
+
+  morph_target:
+    priority: normal
+    max_duration_ms: 2000
+    params:
+      name: { type: string }
+      weight: { type: float, min: 0, max: 1 }
+      blend_ms: { type: int, min: 0, max: 1000 }
+
+  viseme:
+    priority: realtime
+    max_duration_ms: 120
+    params:
+      name: { type: string }
+      weight: { type: float, min: 0, max: 1 }
+      blend_ms: { type: int, min: 0, max: 300 }
+
+  animation_clip:
+    priority: normal
+    max_duration_ms: 10000
+    params:
+      name: { type: string }
+      loop: { type: bool }
+      speed: { type: float, min: 0, max: 3 }
+      fade_ms: { type: int, min: 0, max: 2000 }
+
+  motion_sequence:
+    priority: normal
+    max_duration_ms: 30000
+    params:
+      steps: { type: array }
+
   try_on:
     priority: blocking
     max_duration_ms: 10000

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     asr_model_path: str = ""
     asr_device: str = ""
     asr_compute_type: str = ""
+    asr_log_file: str = ""
     tts_provider: str = "edge"
     avatar_api_url: str = "http://localhost:9000"
 

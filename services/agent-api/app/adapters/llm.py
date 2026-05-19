@@ -243,6 +243,17 @@ def _parse_llm_content(content: str, tool_calls: list | None) -> AgentReply:
 
 _VALID_GESTURES = {"nod", "shake_head", "wave", "point_left", "point_right", "idle_scan", "thinking"}
 _VALID_EXPRESSIONS = {"neutral", "smile", "friendly", "surprised", "thinking", "concerned", "happy"}
+_VALID_DIRECT_AVATAR_ACTIONS = {
+    "lip_sync",
+    "pose",
+    "bone_pose",
+    "morph_target",
+    "viseme",
+    "animation_clip",
+    "motion_sequence",
+    "try_on",
+    "load_avatar",
+}
 
 
 def _validate_actions(actions: list[dict]) -> list[dict]:
@@ -252,6 +263,8 @@ def _validate_actions(actions: list[dict]) -> list[dict]:
         if t == "gesture" and a.get("name") not in _VALID_GESTURES:
             continue
         if t == "expression" and a.get("name") not in _VALID_EXPRESSIONS:
+            continue
+        if t not in {"gesture", "expression"} and t not in _VALID_DIRECT_AVATAR_ACTIONS:
             continue
         result.append(a)
     return result

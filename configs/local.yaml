@@ -37,7 +37,7 @@ asr:
     compute_type: "int8"
 
 tts:
-  provider: "edge"            # edge | openai | local
+  provider: "local"           # edge | openai | local
   edge:
     voice: "zh-CN-XiaoxiaoNeural"
   openai:

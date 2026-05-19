@@ -89,6 +89,19 @@
 .llm-status.success { color: #88f0aa; }
 .llm-status.error { color: #ff9a9a; }
 
+.mic-status {
+  position: absolute;
+  top: 184px;
+  left: 20px;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+}
+.mic-status.error { color: #ff9a9a; }
+
 .reply-bubble {
   position: absolute;
   top: 60px;

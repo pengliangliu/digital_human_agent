@@ -1,7 +1,7 @@
 [project]
 name = "dagital-human-agent"
 version = "0.1.0"
-description = "智能数字人Agent — 虚拟试衣魔镜终端交互系统"
+description = "交互式数字人 Agent 系统"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",

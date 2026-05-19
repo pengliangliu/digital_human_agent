@@ -14,6 +14,7 @@ pyvenv.cfg
 
 # Data
 data/memory.db
+logs/*.log
 
 # IDE
 .idea/

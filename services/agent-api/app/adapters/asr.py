@@ -1,10 +1,19 @@
 from abc import ABC, abstractmethod
 import subprocess
+from typing import Callable
+
+
+ASRStatusCallback = Callable[[str, str], None]
 
 
 class ASRAdapter(ABC):
     @abstractmethod
-    async def transcribe(self, audio_data: bytes, sample_rate: int = 16000) -> str:
+    async def transcribe(
+        self,
+        audio_data: bytes,
+        sample_rate: int = 16000,
+        status_callback: ASRStatusCallback | None = None,
+    ) -> str:
         ...
 
     @abstractmethod
@@ -18,10 +27,17 @@ class WhisperCloudAdapter(ASRAdapter):
 
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-    async def transcribe(self, audio_data: bytes, sample_rate: int = 16000) -> str:
+    async def transcribe(
+        self,
+        audio_data: bytes,
+        sample_rate: int = 16000,
+        status_callback: ASRStatusCallback | None = None,
+    ) -> str:
         import io
         import wave
 
+        if status_callback:
+            status_callback("preparing_audio", "正在准备上传给云端 ASR 的音频")
         buf = io.BytesIO()
         with wave.open(buf, "wb") as wf:
             wf.setnchannels(1)
@@ -31,7 +47,11 @@ class WhisperCloudAdapter(ASRAdapter):
         buf.seek(0)
         buf.name = "audio.wav"
 
+        if status_callback:
+            status_callback("cloud_transcribing", "正在等待云端 ASR 返回结果")
         resp = await self._client.audio.transcriptions.create(model="whisper-1", file=buf, language="zh")
+        if status_callback:
+            status_callback("done", "云端 ASR 识别完成")
         return resp.text
 
     async def close(self) -> None:
@@ -58,7 +78,15 @@ class LocalWhisperAdapter(ASRAdapter):
                 from faster_whisper import WhisperModel
 
                 model_ref = self._model_path or self._model_size
-                self._model = WhisperModel(model_ref, device=self._device, compute_type=self._compute_type)
+                try:
+                    self._model = WhisperModel(model_ref, device=self._device, compute_type=self._compute_type)
+                except Exception as exc:
+                    if self._device == "cuda" and _is_cuda_runtime_error(exc):
+                        print(f"[asr] CUDA unavailable, falling back to CPU: {exc}")
+                        self._device = "cpu"
+                        self._model = WhisperModel(model_ref, device=self._device, compute_type=self._compute_type)
+                    else:
+                        raise
             except Exception as exc:
                 raise RuntimeError(self._format_load_error(exc)) from exc
 
@@ -66,18 +94,61 @@ class LocalWhisperAdapter(ASRAdapter):
         message = str(exc)
         if isinstance(exc, ModuleNotFoundError) and "faster_whisper" in message:
             return "本地 ASR 依赖 faster-whisper 未安装，请运行 pip install -e .[local] 或 pip install faster-whisper。"
-        if self._device == "cuda" and "cuda" in message.lower():
-            return f"本地 ASR CUDA 环境不可用：{message}。请检查 NVIDIA 驱动/CUDA，或设置 ASR_DEVICE=cpu 切回 CPU。"
+        if self._device == "cuda" and _is_cuda_runtime_error(exc):
+            return f"本地 ASR CUDA 环境不可用，缺少 CUDA/cuBLAS/cuDNN 运行库：{message}。请安装匹配的 NVIDIA CUDA 运行库，或设置 ASR_DEVICE=cpu 切回 CPU。"
         return f"本地 ASR 模型加载失败：{message}"
 
-    async def transcribe(self, audio_data: bytes, sample_rate: int = 16000) -> str:
+    async def transcribe(
+        self,
+        audio_data: bytes,
+        sample_rate: int = 16000,
+        status_callback: ASRStatusCallback | None = None,
+    ) -> str:
         import asyncio
 
+        return await asyncio.to_thread(self._transcribe_sync, audio_data, sample_rate, status_callback)
+
+    def _transcribe_sync(
+        self,
+        audio_data: bytes,
+        sample_rate: int = 16000,
+        status_callback: ASRStatusCallback | None = None,
+    ) -> str:
+        if status_callback:
+            status_callback("loading_model", "正在加载本地 Whisper 模型")
         self._load()
+        if status_callback:
+            status_callback("decoding_audio", "正在解码浏览器音频")
         audio_np = _decode_audio_to_float32(audio_data, sample_rate)
 
-        segments, _ = await asyncio.to_thread(lambda: list(self._model.transcribe(audio_np, language="zh")))
-        return " ".join(s.text for s in segments)
+        if status_callback:
+            status_callback("transcribing", "正在运行 Whisper 推理")
+        text = self._transcribe_loaded_model(audio_np, status_callback)
+        if status_callback:
+            status_callback("done", "Whisper 推理完成")
+        return text
+
+    def _transcribe_loaded_model(self, audio_np, status_callback: ASRStatusCallback | None = None) -> str:
+        try:
+            return self._collect_transcription_text(audio_np)
+        except Exception as exc:
+            if self._device == "cuda" and _is_cuda_runtime_error(exc):
+                print(f"[asr] CUDA transcribe failed, falling back to CPU: {exc}")
+                if status_callback:
+                    status_callback("cuda_fallback", "CUDA 运行库不可用，正在切换 CPU 重新识别")
+                self._device = "cpu"
+                self._model = None
+                if status_callback:
+                    status_callback("loading_model", "正在加载 CPU Whisper 模型")
+                self._load()
+                if status_callback:
+                    status_callback("transcribing", "正在使用 CPU 运行 Whisper 推理")
+                return self._collect_transcription_text(audio_np)
+            raise
+
+    def _collect_transcription_text(self, audio_np) -> str:
+        segments, _ = self._model.transcribe(audio_np, language="zh")
+        return " ".join(s.text.strip() for s in segments if s.text.strip()).strip()
 
     async def close(self) -> None:
         self._model = None
@@ -143,8 +214,18 @@ def _ffmpeg_executable() -> str:
         return "ffmpeg"
 
 
+def _is_cuda_runtime_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(token in message for token in ("cuda", "cublas", "cudnn", "cufft", "curand", "cusolver"))
+
+
 class NullASRAdapter(ASRAdapter):
-    async def transcribe(self, audio_data: bytes, sample_rate: int = 16000) -> str:
+    async def transcribe(
+        self,
+        audio_data: bytes,
+        sample_rate: int = 16000,
+        status_callback: ASRStatusCallback | None = None,
+    ) -> str:
         return ""
 
     async def close(self) -> None:

@@ -11,21 +11,28 @@ export function createSessionSocket(sessionId: string) {
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${location.hostname}:8000/ws/session/${sessionId}`;
   const ws = new WebSocket(wsUrl);
+  let manuallyClosed = false;
   const handlers: MessageHandler[] = [];
   const openHandlers: SocketHandler[] = [];
   const closeHandlers: SocketHandler[] = [];
   const errorHandlers: SocketErrorHandler[] = [];
 
   ws.onopen = () => {
+    if (manuallyClosed) {
+      ws.close();
+      return;
+    }
     ws.send(JSON.stringify({ event: 'session.init', payload: {} }));
     openHandlers.forEach((handler) => handler());
   };
 
   ws.onclose = () => {
+    if (manuallyClosed) return;
     closeHandlers.forEach((handler) => handler());
   };
 
   ws.onerror = (event) => {
+    if (manuallyClosed) return;
     errorHandlers.forEach((handler) => handler(event));
   };
 
@@ -64,7 +71,10 @@ export function createSessionSocket(sessionId: string) {
       return ws.readyState;
     },
     close() {
-      ws.close();
+      manuallyClosed = true;
+      if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
     },
   };
 }
