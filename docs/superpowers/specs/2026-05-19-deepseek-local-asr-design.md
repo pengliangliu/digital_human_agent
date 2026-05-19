@@ -16,6 +16,8 @@ OpenAI 兼容的聊天适配器发送给 DeepSeek，最后沿用现有事件格�
 - 语音识别尽量在本地运行。
 - 第一版面向可移植应用的默认方案，应优先考虑体积和稳定性，而不是追求最高
   识别准确率。
+- 目标运行机器默认具备 NVIDIA GPU 和可用 CUDA 环境；没有 CUDA 时可通过
+  `ASR_DEVICE=cpu` 切回 CPU。
 - 中文语音是主要使用场景，所以 ASR 必须使用多语言 Whisper 模型，不能使用
   English-only 模型。
 - DeepSeek API Key 由本机用户配置，不能打包进应用。
@@ -23,7 +25,7 @@ OpenAI 兼容的聊天适配器发送给 DeepSeek，最后沿用现有事件格�
 ## 目标
 
 - 通过显式配置支持 DeepSeek。
-- 通过 faster-whisper 支持本地 ASR，并默认使用 CPU int8 推理。
+- 通过 faster-whisper 支持本地 ASR，并默认使用 CUDA int8 推理。
 - 本地 ASR 默认使用 `small` 多语言模型。
 - 保持当前文本交互链路不变：语音转写后的文字进入同一套 Agent 文本处理逻辑。
 - 为后续可移植 app 保留模型体积和模型路径配置能力。
@@ -61,7 +63,7 @@ OpenAI-compatible adapter。DeepSeek 官方 OpenAI 兼容接口的 base URL 是
 
 - 加载 `faster_whisper.WhisperModel`。
 - 默认 `model_size` 为 `small`。
-- 默认 `device` 为 `cpu`。
+- 默认 `device` 为 `cuda`。
 - 默认 `compute_type` 为 `int8`。
 - 允许通过 `ASR_MODEL_SIZE` 选择 `tiny`、`base`、`small` 或更大的模型。
 - 允许通过 `ASR_MODEL_PATH` 指向本地预下载模型目录。
@@ -108,6 +110,8 @@ OpenAI-compatible adapter。DeepSeek 官方 OpenAI 兼容接口的 base URL 是
 - 如果 `LLM_PROVIDER=deepseek` 但未配置 `DEEPSEEK_API_KEY`，后端应打印清晰警告，
   并使用 mock adapter，行为与当前 OpenAI 缺少 API Key 时一致。
 - 如果本地 ASR 依赖或模型文件缺失，后端应发布带有可操作提示的 `error` 事件。
+- 如果 CUDA 不可用，后端应提示用户检查 CUDA 环境，或通过 `ASR_DEVICE=cpu`
+  切回 CPU。
 - 如果 ASR 返回空文本，不调用 LLM。
 - 如果 DeepSeek 返回普通文本而不是结构化 JSON，继续使用当前纯文本 fallback
   行为。
@@ -133,6 +137,8 @@ OpenAI-compatible adapter。DeepSeek 官方 OpenAI 兼容接口的 base URL 是
 - DeepSeek API Key 保存在用户本机配置中。
 - 提供预下载的 `faster-whisper-small` 模型目录，或提供首次启动下载模型的步骤。
 - 保持 `ASR_MODEL_PATH` 可配置，让应用不依赖 Hugging Face 默认缓存目录结构。
+- 说明 CUDA 运行环境要求；无 CUDA 的机器可以使用 `ASR_DEVICE=cpu` 作为兼容
+  配置。
 
 这样可以让第一版安装包更轻，同时保留离线语音识别能力。完全离线智能交互需
 要把 DeepSeek 换成本地 LLM，不属于本设计范围。
