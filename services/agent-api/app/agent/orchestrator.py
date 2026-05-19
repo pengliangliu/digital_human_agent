@@ -1,6 +1,6 @@
 import asyncio
 import base64
-from typing import Any
+from typing import Any, Callable
 
 from app.adapters.llm import LLMAdapter
 from app.adapters.asr import ASRAdapter
@@ -22,6 +22,7 @@ class AgentOrchestrator:
         tts: TTSAdapter,
         avatar: AvatarActionAdapter,
         memory: SessionMemory,
+        session_llm_factory: Callable[[str], LLMAdapter] | None = None,
     ) -> None:
         self._event_bus = event_bus
         self._llm = llm
@@ -31,6 +32,8 @@ class AgentOrchestrator:
         self._behavior = BehaviorPlanner()
         self._tools = AgentTools()
         self._memory = memory
+        self._session_llm_factory = session_llm_factory
+        self._session_llms: dict[str, LLMAdapter] = {}
         self._processing: dict[str, bool] = {}
         self._tts_enabled: dict[str, bool] = {}
 
@@ -44,7 +47,49 @@ class AgentOrchestrator:
         elif event.event == "session.init":
             await self._handle_session_init(session_id)
         elif event.event == "session.config":
+            await self._handle_session_config(session_id, event)
+
+    async def _handle_session_config(self, session_id: str, event: ClientEvent) -> None:
+        if "tts_enabled" in event.payload:
             self._tts_enabled[session_id] = event.payload.get("tts_enabled", True)
+
+        api_key = event.payload.get("deepseek_api_key", "")
+        if isinstance(api_key, str) and api_key.strip():
+            await self._configure_session_deepseek(session_id, api_key.strip())
+
+    async def _configure_session_deepseek(self, session_id: str, api_key: str) -> None:
+        if self._session_llm_factory is None:
+            await self._event_bus.publish(session_id, "llm.connection", {
+                "ok": False,
+                "provider": "deepseek",
+                "message": "后端未启用 DeepSeek 会话配置",
+            })
+            return
+
+        llm = self._session_llm_factory(api_key)
+        try:
+            await llm.chat([
+                {"role": "system", "content": "只回复 OK。"},
+                {"role": "user", "content": "ping"},
+            ])
+        except Exception as exc:
+            await llm.close()
+            await self._event_bus.publish(session_id, "llm.connection", {
+                "ok": False,
+                "provider": "deepseek",
+                "message": f"DeepSeek 连接失败：{exc}",
+            })
+            return
+
+        old_llm = self._session_llms.pop(session_id, None)
+        if old_llm:
+            await old_llm.close()
+        self._session_llms[session_id] = llm
+        await self._event_bus.publish(session_id, "llm.connection", {
+            "ok": True,
+            "provider": "deepseek",
+            "message": "DeepSeek 连接成功",
+        })
 
     async def _handle_vision(self, session_id: str, event: ClientEvent) -> None:
         vision = VisionState.model_validate(event.payload)
@@ -81,7 +126,8 @@ class AgentOrchestrator:
             system_msg = self._build_system(prefs)
             messages = [system_msg] + history
 
-            reply = await self._llm.chat(messages, AVAILABLE_TOOLS)
+            llm = self._session_llms.get(session_id, self._llm)
+            reply = await llm.chat(messages, AVAILABLE_TOOLS)
             history.append({"role": "assistant", "content": reply.reply_text})
 
             # Execute tool calls
@@ -145,6 +191,9 @@ class AgentOrchestrator:
         return {"role": "system", "content": SYSTEM_PROMPT + extras}
 
     async def close(self) -> None:
+        for llm in self._session_llms.values():
+            await llm.close()
+        self._session_llms.clear()
         await self._llm.close()
         await self._asr.close()
         await self._tts.close()

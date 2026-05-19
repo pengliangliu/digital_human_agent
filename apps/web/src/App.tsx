@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component, ReactNode } from 'react';
 import AvatarScene from './avatar/AvatarScene';
 import { BrowserAvatarRuntime, AvatarAction } from './avatar/avatarActions';
+import { fetchAvatarModels, type AvatarModelInfo } from './avatar/avatarModels';
 import { createSessionSocket, ClientEvent } from './api/wsClient';
 import { useFaceTracking } from './vision/useFaceTracking';
 import { useMicrophone } from './audio/useMicrophone';
@@ -37,13 +38,46 @@ export default function App() {
   const [visionEnabled, setVisionEnabled] = useState(true);
   const [micEnabled, setMicEnabled] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [deepseekApiKey, setDeepseekApiKey] = useState('');
+  const [llmStatus, setLlmStatus] = useState('请填写 DeepSeek API Key');
+  const [llmConnecting, setLlmConnecting] = useState(false);
   const [events, setEvents] = useState<ClientEvent[]>([]);
+  const [avatarModels, setAvatarModels] = useState<AvatarModelInfo[]>([]);
+  const [selectedAvatarId, setSelectedAvatarId] = useState('');
+  const [modelStatus, setModelStatus] = useState('使用内置占位数字人');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const socketRef = useRef<ReturnType<typeof createSessionSocket> | null>(null);
   const avatarRuntimeRef = useRef<BrowserAvatarRuntime | null>(null);
 
   const send = useCallback((event: ClientEvent) => {
     socketRef.current?.send(event);
+  }, []);
+
+  const selectedAvatarModel = avatarModels.find((item) => item.id === selectedAvatarId) || null;
+
+  const handleModelStatus = useCallback((message: string) => {
+    setModelStatus(message);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAvatarModels()
+      .then((items) => {
+        if (cancelled) return;
+        setAvatarModels(items);
+        if (items.length > 0) {
+          setSelectedAvatarId(items[0].id);
+          setModelStatus(`发现 ${items.length} 个自建模型`);
+        }
+      })
+      .catch((e) => {
+        console.warn('[app] avatar model list failed:', e);
+        if (!cancelled) setModelStatus('未发现可用自建模型，使用内置占位数字人');
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Connect WebSocket
@@ -119,6 +153,12 @@ export default function App() {
               }
               break;
             }
+            case 'llm.connection': {
+              const payload = event.payload as Record<string, unknown>;
+              setLlmConnecting(false);
+              setLlmStatus((payload.message as string) || ((payload.ok as boolean) ? 'DeepSeek 连接成功' : 'DeepSeek 连接失败'));
+              break;
+            }
           }
         } catch (e) {
           console.warn('[app] event handler error:', e);
@@ -187,6 +227,17 @@ export default function App() {
     input.value = '';
   };
 
+  const handleDeepSeekConnect = () => {
+    const apiKey = deepseekApiKey.trim();
+    if (!apiKey) {
+      setLlmStatus('请输入 DeepSeek API Key');
+      return;
+    }
+    setLlmConnecting(true);
+    setLlmStatus('正在连接 DeepSeek...');
+    send({ event: 'session.config', payload: { deepseek_api_key: apiKey, tts_enabled: ttsEnabled } });
+  };
+
   const onAvatarReady = useCallback((runtime: BrowserAvatarRuntime) => {
     avatarRuntimeRef.current = runtime;
     setAvatarRuntime(runtime);
@@ -214,7 +265,12 @@ export default function App() {
     <ErrorBoundary>
       <div className="app">
         <div className="scene-container">
-          <AvatarScene onAvatarReady={onAvatarReady} actions={avatarActions} />
+          <AvatarScene
+            onAvatarReady={onAvatarReady}
+            actions={avatarActions}
+            model={selectedAvatarModel}
+            onModelStatus={handleModelStatus}
+          />
           <video ref={videoRef} autoPlay muted playsInline className="camera-preview" />
         </div>
 
@@ -232,9 +288,26 @@ export default function App() {
           </div>
 
           {replyText && <div className="reply-bubble">{replyText}</div>}
+          <div className="model-status">{modelStatus}</div>
+          <div className={`llm-status ${llmStatus.includes('成功') ? 'success' : llmStatus.includes('失败') ? 'error' : ''}`}>
+            {llmStatus}
+          </div>
         </div>
 
         <div className="controls">
+          <div className="llm-row">
+            <input
+              className="api-key-input"
+              type="password"
+              value={deepseekApiKey}
+              onChange={(e) => setDeepseekApiKey(e.target.value)}
+              placeholder="DeepSeek API Key"
+              autoComplete="off"
+            />
+            <button className="ctrl-btn" onClick={handleDeepSeekConnect} disabled={llmConnecting || status !== 'ready'}>
+              {llmConnecting ? '连接中' : '连接 DeepSeek'}
+            </button>
+          </div>
           <div className="control-row">
             <button className={`ctrl-btn ${micEnabled ? 'active' : ''}`} onClick={handleMicToggle}>
               {micEnabled ? '停止录音' : '开始录音'}
@@ -245,6 +318,19 @@ export default function App() {
             <button className={`ctrl-btn ${visionEnabled ? 'active' : ''}`} onClick={() => setVisionEnabled(!visionEnabled)}>
               {visionEnabled ? '追踪开' : '追踪关'}
             </button>
+            <select
+              className="model-select"
+              value={selectedAvatarId}
+              onChange={(e) => setSelectedAvatarId(e.target.value)}
+              title={modelStatus}
+            >
+              <option value="">内置占位数字人</option>
+              {avatarModels.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name} ({item.format})
+                </option>
+              ))}
+            </select>
           </div>
           <div className="text-row">
             <input id="text-input" type="text" placeholder="输入文字与数字人对话..." onKeyDown={(e) => e.key === 'Enter' && handleTextSend()} />

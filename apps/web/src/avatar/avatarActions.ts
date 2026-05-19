@@ -10,6 +10,7 @@ export type AvatarAction = {
 export class BrowserAvatarRuntime {
   private headGroup: THREE.Group | null = null;
   private bodyGroup: THREE.Group | null = null;
+  private externalModel: THREE.Group | null = null;
   private currentExpression: string = 'neutral';
   private isSpeaking: boolean = false;
   lastHeadActionTime: number = 0;
@@ -17,6 +18,10 @@ export class BrowserAvatarRuntime {
   constructor(headGroup: THREE.Group | null, bodyGroup: THREE.Group | null) {
     this.headGroup = headGroup;
     this.bodyGroup = bodyGroup;
+  }
+
+  setExternalModel(modelGroup: THREE.Group | null) {
+    this.externalModel = modelGroup;
   }
 
   apply(action: AvatarAction) {
@@ -47,26 +52,29 @@ export class BrowserAvatarRuntime {
   }
 
   private lookAt(payload: Record<string, unknown>) {
-    if (!this.headGroup) return;
+    const target = this.externalModel || this.headGroup;
+    if (!target) return;
     const yaw = ((payload.yaw as number) || 0) * (Math.PI / 180) * 1.5;
     const pitch = ((payload.pitch as number) || 0) * (Math.PI / 180) * 1.5;
-    this.headGroup.rotation.y = yaw;
-    this.headGroup.rotation.x = -pitch;
+    target.rotation.y = yaw;
+    target.rotation.x = -pitch;
   }
 
   private setHeadPose(payload: Record<string, unknown>) {
-    if (!this.headGroup) return;
+    const target = this.externalModel || this.headGroup;
+    if (!target) return;
     const yaw = ((payload.yaw as number) || 0) * (Math.PI / 180) * 1.5;
     const pitch = ((payload.pitch as number) || 0) * (Math.PI / 180) * 1.5;
     const roll = ((payload.roll as number) || 0) * (Math.PI / 180);
-    this.headGroup.rotation.set(-pitch, yaw, roll);
+    target.rotation.set(-pitch, yaw, roll);
   }
 
   private playGesture(payload: Record<string, unknown>) {
     const name = payload.name as string;
-    if (name === 'nod' && this.headGroup) {
+    const target = this.externalModel || this.headGroup;
+    if (name === 'nod' && target) {
       // Simple nod animation: oscillate pitch
-      const startPitch = this.headGroup.rotation.x;
+      const startPitch = target.rotation.x;
       const intensity = (payload.intensity as number) || 0.5;
       const amplitude = 0.15 * intensity;
       const duration = 800;
@@ -75,9 +83,7 @@ export class BrowserAvatarRuntime {
         const elapsed = performance.now() - startTime;
         const t = Math.min(elapsed / duration, 1);
         const bounce = Math.sin(t * Math.PI * 2) * amplitude * (1 - t);
-        if (this.headGroup) {
-          this.headGroup.rotation.x = startPitch - bounce;
-        }
+        target.rotation.x = startPitch - bounce;
         if (t < 1) requestAnimationFrame(animate);
       };
       requestAnimationFrame(animate);
