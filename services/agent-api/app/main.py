@@ -87,6 +87,21 @@ def _build_asr(settings: Settings, cfg: dict[str, Any]):
     return NullASRAdapter()
 
 
+def _build_deepseek_session_llm_factory(settings: Settings, llm_cfg: dict[str, Any]):
+    deepseek = llm_cfg.get("deepseek", {})
+
+    def factory(api_key: str):
+        return OpenAIAdapter(
+            api_key=api_key,
+            base_url=settings.deepseek_base_url or deepseek.get("base_url", "https://api.deepseek.com"),
+            model=settings.deepseek_model or deepseek.get("model", "deepseek-v4-flash"),
+            temperature=deepseek.get("temperature", 0.7),
+            max_tokens=deepseek.get("max_tokens", 1024),
+        )
+
+    return factory
+
+
 def _build_orchestrator():
     from app.agent.orchestrator import AgentOrchestrator
     from app.agent.memory import SessionMemory
@@ -130,6 +145,7 @@ def _build_orchestrator():
         tts=tts,
         avatar=avatar,
         memory=memory,
+        session_llm_factory=_build_deepseek_session_llm_factory(settings, llm_cfg),
     )
 
 

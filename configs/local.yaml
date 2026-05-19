@@ -5,7 +5,7 @@ server:
   log_level: "info"
 
 llm:
-  provider: "openai"          # openai | deepseek | ollama | anthropic
+  provider: "deepseek"        # openai | deepseek | ollama | anthropic
   openai:
     model: "gpt-4o"
     temperature: 0.7
@@ -26,7 +26,7 @@ llm:
     max_tokens: 1024
 
 asr:
-  provider: "cloud"           # cloud | local
+  provider: "local"           # cloud | local
   cloud:
     engine: "openai-whisper"  # openai-whisper
   local:
