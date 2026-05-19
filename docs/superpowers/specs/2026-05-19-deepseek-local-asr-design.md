@@ -1,92 +1,88 @@
-# DeepSeek + Local ASR Integration Design
+# DeepSeek + 本地 ASR 集成设计
 
-Date: 2026-05-19
+日期：2026-05-19
 
-## Summary
+## 概要
 
-Add intelligent interaction by using DeepSeek as the cloud LLM and
-faster-whisper as the local ASR engine. The browser continues to capture
-microphone audio and send it through the existing WebSocket channel. The
-backend converts audio to text locally, sends text to DeepSeek through an
-OpenAI-compatible chat adapter, and returns the existing agent reply events.
+本方案为数字人 Agent 增加智能交互能力：使用 DeepSeek 作为云端大模型，
+使用 faster-whisper 作为本地语音识别引擎。浏览器继续采集麦克风音频，并
+通过现有 WebSocket 通道发送给后端。后端在本地把音频转换成文字，再通过
+OpenAI 兼容的聊天适配器发送给 DeepSeek，最后沿用现有事件格式返回 Agent
+回复。
 
-## Assumptions
+## 假设
 
-- The app may use the network for LLM calls to DeepSeek.
-- Speech recognition should run locally where practical.
-- The first production-oriented default should favor portability over maximum
-  recognition accuracy.
-- Chinese speech is a primary use case, so the ASR model must use a
-  multilingual Whisper model, not an English-only model.
-- DeepSeek API keys are configured locally by the app operator and are not
-  bundled into the app.
+- 应用可以联网调用 DeepSeek。
+- 语音识别尽量在本地运行。
+- 第一版面向可移植应用的默认方案，应优先考虑体积和稳定性，而不是追求最高
+  识别准确率。
+- 中文语音是主要使用场景，所以 ASR 必须使用多语言 Whisper 模型，不能使用
+  English-only 模型。
+- DeepSeek API Key 由本机用户配置，不能打包进应用。
 
-## Goals
+## 目标
 
-- Support DeepSeek via explicit configuration.
-- Support local ASR with faster-whisper using CPU int8 inference.
-- Default local ASR to the `small` multilingual model.
-- Keep the current text interaction path intact: transcribed speech becomes the
-  same `audio.transcript` style input handled by the agent.
-- Keep model size and packaging choices compatible with a later portable app.
+- 通过显式配置支持 DeepSeek。
+- 通过 faster-whisper 支持本地 ASR，并默认使用 CPU int8 推理。
+- 本地 ASR 默认使用 `small` 多语言模型。
+- 保持当前文本交互链路不变：语音转写后的文字进入同一套 Agent 文本处理逻辑。
+- 为后续可移植 app 保留模型体积和模型路径配置能力。
 
-## Non-Goals
+## 非目标
 
-- Do not build the final desktop installer in this step.
-- Do not add fully offline LLM inference in this step.
-- Do not change avatar behavior beyond preserving existing action output.
-- Do not add multi-provider ASR selection UI in this step.
+- 本步骤不制作最终桌面安装包。
+- 本步骤不增加完全离线的大模型推理。
+- 本步骤不调整数字人动作逻辑，只保持已有动作输出兼容。
+- 本步骤不增加多 ASR 服务切换 UI。
 
-## LLM Design
+## LLM 设计
 
-DeepSeek should be represented as a first-class provider in configuration, while
-reusing the existing OpenAI-compatible adapter internally. DeepSeek's official
-OpenAI-compatible base URL is `https://api.deepseek.com`.
+DeepSeek 在配置中作为一个独立 provider 暴露，但内部复用现有
+OpenAI-compatible adapter。DeepSeek 官方 OpenAI 兼容接口的 base URL 是
+`https://api.deepseek.com`。
 
-Recommended defaults:
+推荐默认配置：
 
 - `LLM_PROVIDER=deepseek`
 - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
 - `DEEPSEEK_MODEL=deepseek-v4-flash`
 
-`deepseek-v4-pro` can be configured later when quality matters more than speed
-or cost. The older names `deepseek-chat` and `deepseek-reasoner` should not be
-used as defaults because DeepSeek documents them as deprecated on 2026-07-24.
+如果后续更看重效果而不是速度或成本，可以改成 `deepseek-v4-pro`。旧模型名
+`deepseek-chat` 和 `deepseek-reasoner` 不应作为默认值，因为 DeepSeek 文档标
+注它们将在 2026-07-24 废弃。
 
-The existing `OpenAIAdapter` can be reused because DeepSeek accepts the same
-chat-completions style messages and tool definitions.
+现有 `OpenAIAdapter` 可以复用，因为 DeepSeek 接受同类 chat-completions
+消息和工具定义格式。
 
-## ASR Design
+## ASR 设计
 
-Use the existing `LocalWhisperAdapter` as the local ASR boundary and make it
-production-ready for portable use:
+沿用现有 `LocalWhisperAdapter` 作为本地 ASR 边界，并补齐可移植应用需要的
+配置能力：
 
-- Load `faster_whisper.WhisperModel`.
-- Default `model_size` to `small`.
-- Default `device` to `cpu`.
-- Default `compute_type` to `int8`.
-- Allow `ASR_MODEL_SIZE` to choose `tiny`, `base`, `small`, or larger models.
-- Allow `ASR_MODEL_PATH` to point at a local pre-downloaded model directory.
+- 加载 `faster_whisper.WhisperModel`。
+- 默认 `model_size` 为 `small`。
+- 默认 `device` 为 `cpu`。
+- 默认 `compute_type` 为 `int8`。
+- 允许通过 `ASR_MODEL_SIZE` 选择 `tiny`、`base`、`small` 或更大的模型。
+- 允许通过 `ASR_MODEL_PATH` 指向本地预下载模型目录。
 
-The app should start with `small` because it is a reasonable default for Chinese
-short-form interaction while keeping the future portable package manageable.
-`base` can be offered as a lighter option, and `medium` can be offered later for
-better accuracy on stronger machines.
+应用默认从 `small` 开始，因为它对中文短句交互的可用性和体积比较均衡。
+`base` 可作为更轻量选项，`medium` 后续可作为高配置机器上的更高准确率选项。
 
-## Data Flow
+## 数据流
 
-1. Browser records microphone audio.
-2. Frontend sends `audio.data` over the existing WebSocket session.
-3. Backend decodes the audio payload.
-4. Local ASR converts the audio bytes to text.
-5. Backend publishes `asr.result` so the UI can show what was heard.
-6. Backend sends the text through the existing agent text handler.
-7. DeepSeek returns an `AgentReply`.
-8. Backend publishes `agent.reply`, avatar actions, and optional TTS audio.
+1. 浏览器录制麦克风音频。
+2. 前端通过现有 WebSocket session 发送 `audio.data`。
+3. 后端解码音频 payload。
+4. 本地 ASR 将音频转换成文字。
+5. 后端发布 `asr.result`，方便 UI 展示识别结果。
+6. 后端把识别文字交给现有 Agent 文本处理逻辑。
+7. DeepSeek 返回 `AgentReply`。
+8. 后端发布 `agent.reply`、数字人动作事件，以及可选的 TTS 音频。
 
-## Configuration
+## 配置
 
-Add environment fields:
+新增环境变量：
 
 - `DEEPSEEK_API_KEY`
 - `DEEPSEEK_BASE_URL`
@@ -96,7 +92,7 @@ Add environment fields:
 - `ASR_DEVICE`
 - `ASR_COMPUTE_TYPE`
 
-Update `configs/local.yaml` to document:
+更新 `configs/local.yaml`，记录以下配置：
 
 - `llm.provider: deepseek`
 - `llm.deepseek.base_url`
@@ -107,47 +103,41 @@ Update `configs/local.yaml` to document:
 - `asr.local.device`
 - `asr.local.compute_type`
 
-## Error Handling
+## 错误处理
 
-- If `LLM_PROVIDER=deepseek` but no `DEEPSEEK_API_KEY` is configured, the backend
-  should log a clear warning and use the mock adapter, matching the current
-  OpenAI fallback behavior.
-- If local ASR dependencies or model files are missing, the backend should
-  publish an `error` event with an actionable message.
-- If ASR returns blank text, do not call the LLM.
-- If DeepSeek returns plain text rather than structured JSON, keep the current
-  plain-text fallback behavior.
+- 如果 `LLM_PROVIDER=deepseek` 但未配置 `DEEPSEEK_API_KEY`，后端应打印清晰警告，
+  并使用 mock adapter，行为与当前 OpenAI 缺少 API Key 时一致。
+- 如果本地 ASR 依赖或模型文件缺失，后端应发布带有可操作提示的 `error` 事件。
+- 如果 ASR 返回空文本，不调用 LLM。
+- 如果 DeepSeek 返回普通文本而不是结构化 JSON，继续使用当前纯文本 fallback
+  行为。
 
-## Testing
+## 测试
 
-Use focused tests before implementation:
+实现前先补充聚焦测试：
 
-- Settings load DeepSeek fields from environment variables.
-- Orchestrator builder selects the DeepSeek/OpenAI-compatible adapter when
-  `LLM_PROVIDER=deepseek`.
-- Local ASR adapter passes configured model size, path, device, and compute type
-  into `WhisperModel`.
-- Blank ASR output does not call the LLM.
-- LLM parsing still accepts plain text and tool calls.
+- Settings 可以从环境变量读取 DeepSeek 字段。
+- `LLM_PROVIDER=deepseek` 时，orchestrator builder 会选择 DeepSeek/OpenAI 兼容
+  适配器。
+- Local ASR adapter 会把配置的 model size、model path、device 和 compute type
+  传给 `WhisperModel`。
+- ASR 输出空文本时不会调用 LLM。
+- LLM 解析逻辑仍然支持纯文本回复和 tool calls。
 
-## Portable App Direction
+## 可移植 App 方向
 
-The later portable app should not require a full developer setup. The preferred
-packaging path is:
+后续可移植 app 不应要求用户安装完整开发环境。推荐打包方向：
 
-- Bundle the built web frontend.
-- Bundle the Python backend runtime.
-- Keep DeepSeek API key in local user configuration.
-- Provide either a pre-downloaded `faster-whisper-small` model directory or a
-  first-run model download step.
-- Keep `ASR_MODEL_PATH` configurable so the app can run without relying on the
-  Hugging Face cache layout.
+- 打包构建后的 Web 前端。
+- 打包 Python 后端运行时。
+- DeepSeek API Key 保存在用户本机配置中。
+- 提供预下载的 `faster-whisper-small` 模型目录，或提供首次启动下载模型的步骤。
+- 保持 `ASR_MODEL_PATH` 可配置，让应用不依赖 Hugging Face 默认缓存目录结构。
 
-This keeps the first install lighter while preserving an offline ASR option.
-Fully offline interaction would require replacing DeepSeek with a local LLM and
-is outside this design.
+这样可以让第一版安装包更轻，同时保留离线语音识别能力。完全离线智能交互需
+要把 DeepSeek 换成本地 LLM，不属于本设计范围。
 
-## References
+## 参考
 
 - DeepSeek API docs: https://api-docs.deepseek.com/
 - OpenAI Whisper model table: https://github.com/openai/whisper/blob/main/README.md
