@@ -40,14 +40,25 @@ class WhisperCloudAdapter(ASRAdapter):
 
 
 class LocalWhisperAdapter(ASRAdapter):
-    def __init__(self, model_size: str = "base") -> None:
+    def __init__(
+        self,
+        model_size: str = "small",
+        model_path: str = "",
+        device: str = "cuda",
+        compute_type: str = "int8",
+    ) -> None:
         self._model_size = model_size
+        self._model_path = model_path
+        self._device = device
+        self._compute_type = compute_type
         self._model = None
 
     def _load(self) -> None:
         if self._model is None:
             from faster_whisper import WhisperModel
-            self._model = WhisperModel(self._model_size, device="cpu", compute_type="int8")
+
+            model_ref = self._model_path or self._model_size
+            self._model = WhisperModel(model_ref, device=self._device, compute_type=self._compute_type)
 
     async def transcribe(self, audio_data: bytes, sample_rate: int = 16000) -> str:
         import io

@@ -5,9 +5,14 @@ server:
   log_level: "info"
 
 llm:
-  provider: "openai"          # openai | ollama | anthropic
+  provider: "openai"          # openai | deepseek | ollama | anthropic
   openai:
     model: "gpt-4o"
+    temperature: 0.7
+    max_tokens: 1024
+  deepseek:
+    base_url: "https://api.deepseek.com"
+    model: "deepseek-v4-flash"
     temperature: 0.7
     max_tokens: 1024
   ollama:
@@ -26,7 +31,10 @@ asr:
     engine: "openai-whisper"  # openai-whisper
   local:
     engine: "faster-whisper"
-    model_size: "base"
+    model_size: "small"
+    model_path: ""
+    device: "cuda"
+    compute_type: "int8"
 
 tts:
   provider: "edge"            # edge | openai | local
